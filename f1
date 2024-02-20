@@ -1,0 +1,28 @@
+import yfinance as yahooFinance
+
+import datetime
+
+startDate = datetime.datetime(2006, 1, 1)
+endDate = datetime.datetime(2020, 12, 31)
+
+vti = yahooFinance.Ticker("VTI").history(start=startDate, end=endDate)
+agg = yahooFinance.Ticker("AGG").history(start=startDate, end=endDate)
+dbc = yahooFinance.Ticker("DBC").history(start=startDate, end=endDate)
+vix = yahooFinance.Ticker("^VIX").history(start=startDate, end=endDate)
+
+all_assets = [vti, agg, dbc, vix]
+
+for asset in all_assets:
+    print(asset)
+    if max(asset['Dividends'] > 0):
+        print("HAS DIVIDENDS")
+        # not sure how this or the following should be incorporated into calculating returns
+    if max(asset['Stock Splits'] > 0):
+        print("HAS STOCK SPLITS")
+    if 'Capital Gains' in asset.columns and max(asset['Capital Gains'] > 0):
+        print("Has capital gains")
+    # print(asset)
+    # print(asset.history(start=startDate,end=endDate))#['Close'])
+
+window_size = 50  # trading days to include in rolling window
+# TO DO: look at rolling correlations and compute rolling stats for baseline models
