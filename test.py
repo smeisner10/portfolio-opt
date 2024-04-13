@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Flatten, Dense
@@ -6,8 +5,13 @@ import tensorflow as tf
 import datetime
 import yfinance as yahooFinance
 import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
-np.random.seed(123)
+np.random.seed(1234)
+
+
+tf.random.set_seed(1234)
+tf.keras.utils.set_random_seed(1234)
 
 
 class Model:
@@ -74,7 +78,9 @@ class Model:
         return self.model.predict(fit_predict_data)[0]
 
 
+# can change this, but must ALSO change get_data function
 labels = ["vti", "agg", "dbc", "vix"]
+N_ASSETS = len(labels)
 
 
 def get_data(startDate, endDate):
@@ -124,7 +130,7 @@ for i in range(len(full_data) - window):
 
     weights = model.model.predict(sub_data)[0]
     returns = sub_data[0][-1] / sub_data[0][-2]
-    returns = returns[:4]
+    returns = returns[:N_ASSETS]
     print(weights)
     port_returns = weights@returns
     if port_returns == port_returns:
