@@ -79,25 +79,25 @@ class Model:
 
 
 # can change this, but must ALSO change get_data function
-labels = ["vti", "agg", "dbc", "vix"]
-N_ASSETS = len(labels)
+# labels = ["vti", "agg", "dbc", "vix"]
+N_ASSETS = 4  # len(labels)
 
 
-def get_data(startDate, endDate):
-    vti = yahooFinance.Ticker("VTI").history(
+def get_data(startDate, endDate, tickers):
+    s1 = yahooFinance.Ticker(tickers[0]).history(
         start=startDate, end=endDate).reset_index()
-    agg = yahooFinance.Ticker("AGG").history(
+    s2 = yahooFinance.Ticker(tickers[1]).history(
         start=startDate, end=endDate).reset_index()
-    dbc = yahooFinance.Ticker("DBC").history(
+    s3 = yahooFinance.Ticker(tickers[2]).history(
         start=startDate, end=endDate).reset_index()
-    vix = yahooFinance.Ticker("^VIX").history(
+    s4 = yahooFinance.Ticker(tickers[3]).history(
         start=startDate, end=endDate).reset_index()
     data = pd.DataFrame()
-    all_assets = [vti, agg, dbc, vix]
+    all_assets = [s1, s2, s3, s4]
 
     for i, asset in enumerate(all_assets):
         asset = asset.reset_index()
-        lb = labels[i]
+        lb = tickers[i].lower()
         data[lb] = asset['Close']
     return data
 
@@ -109,40 +109,66 @@ def prep_data_for_pred(data):
     return fit_predict_data
 
 
-money = 1
-window = 365  # days
+def backtest(tickers, startDate, epochs):
+    money = 1
+    window = 365  # days
 
-startDate = datetime.datetime(2010, 1, 1)
-endDate = startDate + datetime.timedelta(days=window)
+    endDate = startDate + datetime.timedelta(days=window)
+    data = get_data(startDate, endDate, tickers)
 
-data = get_data(startDate, endDate)
-model = Model()
-window = data.shape[0] - 1  # TRUE WINDOW AFTER GETTING JUST TRADING DAYS
-weights = model.get_allocations(data.iloc[:-1], epochs=100)
+    model = Model()
+    window = data.shape[0] - 1  # TRUE WINDOW AFTER GETTING JUST TRADING DAYS
+    weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
 
-# how long we backtest for
-full_data = get_data(startDate, datetime.datetime(2021, 1, 1))
+    # how long we backtest for
+    full_data = get_data(startDate, datetime.datetime(2021, 1, 1), tickers)
 
-moneys = []
-for i in range(len(full_data) - window):
-    sub_data = full_data.iloc[i:i+window - 1]
-    sub_data = prep_data_for_pred(sub_data)
+    moneys = []
+    port_weights_time = []
+    for i in range(len(full_data) - window):
+        sub_data = full_data.iloc[i:i+window - 1]
+        sub_data = prep_data_for_pred(sub_data)
 
-    weights = model.model.predict(sub_data)[0]
-    returns = sub_data[0][-1] / sub_data[0][-2]
-    returns = returns[:N_ASSETS]
-    print(weights)
-    port_returns = weights@returns
-    if port_returns == port_returns:
-        money *= port_returns
-    startDate += datetime.timedelta(days=1)
-    endDate += datetime.timedelta(days=1)
-    print(i, money)
-    moneys.append(money)
+        weights = model.model.predict(sub_data)[0]
+        returns = sub_data[0][-1] / sub_data[0][-2]
+        returns = returns[:N_ASSETS]
+        print(weights)
+        port_returns = weights@returns
+        if port_returns == port_returns:
+            money *= port_returns
+        startDate += datetime.timedelta(days=1)
+        endDate += datetime.timedelta(days=1)
+        print(i, money)
+        moneys.append(money)
+        port_weights_time.append(weights)
 
-plt.plot(range(len(full_data) - window), moneys, label="Portfolio")
-plt.xlabel("Days")
-plt.yscale('log')
-plt.ylabel("Returns (Log scale)")
-plt.legend()
-plt.show()
+    plt.plot(range(len(full_data) - window), moneys, label="Portfolio")
+    plt.xlabel("Days")
+    plt.yscale('log')
+    plt.ylabel("Returns (Log scale)")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    plt.figure()
+    # plot weights over time
+    port_weights_time = np.array(port_weights_time)
+    for i in range(port_weights_time.shape[1]):
+        plt.plot(port_weights_time[:, i], label=tickers[i])
+    plt.xlabel("Days")
+    plt.ylabel("Portfolio Weight")
+    plt.grid()
+    plt.legend()
+    plt.show()
+    return money, port_weights_time
+
+
+if __name__ == "__main__":
+    tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
+    startDate = datetime.datetime(2010, 1, 1)
+    # port_returns, port_weights = backtest(tickers1, startDate, epochs=100)
+
+    # sugar, corn future, soybean future, wheat
+    tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
+    startDate = datetime.datetime(2013, 1, 1)
+    port_returns, port_weights = backtest(tickers2, startDate, epochs=1000)
