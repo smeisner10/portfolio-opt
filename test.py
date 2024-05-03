@@ -11,7 +11,7 @@ np.random.seed(1234)
 
 
 tf.random.set_seed(1234)
-tf.keras.utils.set_random_seed(1234)
+tf.keras.utils.set_random_seed(1234)  # change this
 
 
 class Model:
@@ -109,9 +109,8 @@ def prep_data_for_pred(data):
     return fit_predict_data
 
 
-def backtest(tickers, startDate, epochs):
+def backtest(tickers, startDate, epochs, window=365):
     money = 1
-    window = 365  # days
 
     endDate = startDate + datetime.timedelta(days=window)
     data = get_data(startDate, endDate, tickers)
@@ -148,6 +147,7 @@ def backtest(tickers, startDate, epochs):
     plt.ylabel("Returns (Log scale)")
     plt.legend()
     plt.grid()
+    # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
     plt.figure()
@@ -159,6 +159,7 @@ def backtest(tickers, startDate, epochs):
     plt.ylabel("Portfolio Weight")
     plt.grid()
     plt.legend()
+    # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
     return money, port_weights_time
 
@@ -171,4 +172,19 @@ if __name__ == "__main__":
     # sugar, corn future, soybean future, wheat
     tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
     startDate = datetime.datetime(2013, 1, 1)
-    port_returns, port_weights = backtest(tickers2, startDate, epochs=1000)
+    # port_returns, port_weights = backtest(tickers2, startDate, epochs=1000)
+
+    tickers3 = ["USCI", "^BCOM", "GCC", "FAAR"]
+    startDate = datetime.datetime(2017, 1, 1)
+    # port_returns, port_weights = backtest(tickers3, startDate, epochs=500)
+
+    tickers4 = ['GLTR', 'BNO', 'PHYS', 'PSLV']
+    startDate = datetime.datetime(2017, 1, 1)
+    # port_returns, port_weights = backtest(tickers4, startDate, epochs=500)
+
+    tickers5 = ['COPX', 'URA', 'LIT', 'REMX']
+    # port_returns, port_weights = backtest(tickers5, startDate, epochs=500)
+
+    tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
+    port_returns, port_weights = backtest(
+        tickers6, startDate, epochs=500, window=365)
