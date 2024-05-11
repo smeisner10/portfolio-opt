@@ -9,11 +9,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from cvxopt import matrix, solvers
 
-np.random.seed(1234)
 
+seed = 1234
+np.random.seed(seed)
 
-tf.random.set_seed(1234)
-tf.keras.utils.set_random_seed(1234)  # change this
+tf.random.set_seed(seed)
+tf.keras.utils.set_random_seed(seed)  # change this
 
 
 class Model:
@@ -110,28 +111,37 @@ def prep_data_for_pred(data):
     fit_predict_data = data_w_ret[np.newaxis, :]
     return fit_predict_data
 
+
 def mean_variance_optimization(returns_df):
 
     returns = returns_df.mean()
     covariance = returns_df.cov()
 
-
     P = matrix(covariance.values)
     q = matrix(-returns)
-    G = matrix(-np.identity(4))  # Negative identity matrix for inequality constraints
+    # Negative identity matrix for inequality constraints
+    G = matrix(-np.identity(4))
     h = matrix(np.zeros(4))  # Constraint: weights must be non-negative
     A = matrix(1.0, (1, 4))  # Constraint: sum of weights must equal 1
     b = matrix(1.0)
 
-
     solvers.options['show_progress'] = False
     solution = solvers.qp(P, q, G, h, A, b)
-
 
     weights = np.array(solution['x']).flatten()
     return weights
 
-def backtest(tickers, startDate, epochs, window=365):
+
+def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
+    """
+    Get data and backtest.
+    tickers: list of stock tickers from yahoo (str)
+    startDate: datetime object for training start. 
+    epochs: epochs to train for
+    window: train and predict window size
+    retrain_every: number of days before retrain. set to 0 for no retrain.
+    """
+    original_start = startDate
     money = 1
 
     endDate = startDate + datetime.timedelta(days=window)
@@ -144,13 +154,21 @@ def backtest(tickers, startDate, epochs, window=365):
     # how long we backtest for
     full_data = get_data(startDate, datetime.datetime(2021, 1, 1), tickers)
 
-    moneys = []
+    moneys = [money]
     port_weights_time = []
     for i in range(len(full_data) - window):
         sub_data = full_data.iloc[i:i+window - 1]
-        sub_data = prep_data_for_pred(sub_data)
+        weights = None
+        if retrain_every > 0 and (i + 1) % retrain_every == 0:
+            print('retrain')
+            model = Model()
+            weights = model.get_allocations(sub_data, epochs=epochs)
+            sub_data = prep_data_for_pred(sub_data)
 
-        weights = model.model.predict(sub_data)[0]
+        else:
+            sub_data = prep_data_for_pred(sub_data)
+            weights = model.model.predict(sub_data)[0]
+
         returns = sub_data[0][-1] / sub_data[0][-2]
         returns = returns[:N_ASSETS]
         print(weights)
@@ -162,8 +180,8 @@ def backtest(tickers, startDate, epochs, window=365):
         print(i, money)
         moneys.append(money)
         port_weights_time.append(weights)
-    
-    #mvo from here
+
+    # mvo from here
     prices = full_data
     windows = prices.rolling(50)
     weights_df = pd.DataFrame()
@@ -171,15 +189,15 @@ def backtest(tickers, startDate, epochs, window=365):
     for i in windows:
         try:
             weights = mean_variance_optimization(i)
-            weights_df = pd.concat([weights_df, pd.DataFrame([weights])], ignore_index=True)
+            weights_df = pd.concat(
+                [weights_df, pd.DataFrame([weights])], ignore_index=True)
         except:
             pass
 
-
     weighted_prices = pd.DataFrame(weights_df[:-1].values*prices[2:].values,
-                                columns=prices[2:].columns)
+                                   columns=prices[2:].columns)
 
-    total_daily_prices = weighted_prices.sum(axis = 1)
+    total_daily_prices = weighted_prices.sum(axis=1)
     total_returns = total_daily_prices.pct_change(1)
 
     money = 1
@@ -188,48 +206,95 @@ def backtest(tickers, startDate, epochs, window=365):
         money = money + money * i
         money_arr.append(money)
 
+    ### PLOT 1 ###
+    colors = ['lightblue', 'blue', 'navy', 'purple']
+    for i, t in enumerate(tickers):
+        init_val = full_data[t.lower()].iloc[window]
+        y = full_data[t.lower()].iloc[window:] / init_val
+        plt.plot(range(len(y)), y, label=t, color=colors[i])
 
+    # Format the datetime object into month, day, and year format
+    original_start = original_start.strftime("%m-%d-%Y")
 
-
-
-    plt.plot(range(len(full_data) - window), moneys, label="nn_Portfolio")
-    #mvo
-    plt.plot(range(len(prices[2:])-window),money_arr[0:(len(money_arr) - window)], label = "mvo_portfolio")
-
-    plt.xlabel("Days")
-    plt.yscale('log')
-    plt.ylabel("Returns (Log scale)")
+    plt.xlabel(f"Days from {original_start}")
+    plt.ylabel("Returns on Assets")
+    # plt.title("LSTM vs MVO Portfolio Performance\nOver Time")
     plt.legend()
     plt.grid()
+
     # plt.savefig('INSERT_FIG_NAME.png')
-    
     plt.show()
 
+    ### PLOT 2 ####
+    plt.figure()
+
+    # mvo
+    # plt.plot(range(len(prices[2:])-window),
+    # money_arr[0:(len(money_arr) - window)], label="MVO portfolio")
+    for i, t in enumerate(tickers):
+        init_val = full_data[t.lower()].iloc[window]
+        y = full_data[t.lower()].iloc[window:] / init_val
+        plt.plot(range(len(y)), y, label=t, color=colors[i])
+
+    plt.plot(range(len(full_data) - window + 1),
+             moneys, label="LSTM Portfolio", color='green')
+
+    plt.xlabel(f"Days from {original_start}")
+    plt.ylabel("Normalized Returns")
+    # plt.title("LSTM vs MVO Portfolio Performance\nOver Time")
+    plt.title("LSTM Portfolio vs Assets")
+    plt.legend()
+    plt.grid()
+
+    # plt.savefig('INSERT_FIG_NAME.png')
+    plt.show()
+
+    ### PLOT 3###
+    plt.figure()
+    plt.plot(range(len(full_data) - window + 1),
+             moneys, label="LSTM Portfolio", color='blue')
+    # mvo
+    plt.plot(range(len(prices[2:])-window),
+             money_arr[0:(len(money_arr) - window)], label="MVO Portfolio", color='lightblue')
+
+    plt.xlabel(f"Days from {original_start}")
+    plt.ylabel("Portfolio Returns")
+    plt.title("LSTM vs MVO Portfolio Performance\nOver Time")
+    plt.legend()
+    plt.grid()
+
+    # plt.savefig('INSERT_FIG_NAME.png')
+    plt.show()
+
+    ### PLOT 3 ###
     plt.figure()
     # plot weights over time
     port_weights_time = np.array(port_weights_time)
     for i in range(port_weights_time.shape[1]):
-        plt.plot(port_weights_time[:, i], label=tickers[i])
+        plt.plot(port_weights_time[:, i], label=tickers[i], color=colors[i])
 
-    plt.xlabel("Days")
-    plt.ylabel("Portfolio Weight")
+    plt.xlabel(f"Days from {original_start}")
+    plt.ylabel("LSTM Portfolio Weight")
+    plt.title("LSTM Portfolio Weights over Time")
     plt.grid()
     plt.legend()
 
     # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
-    #mvo weights plots:
+    ### PLOT 4 ###
+    # mvo weights plots:
     plt.figure()
     mvo_weights_plot_df = weights_df[0:(len(money_arr) - window)]
 
     counter = 0
     for i in mvo_weights_plot_df.columns:
-        plt.plot(mvo_weights_plot_df[i], label = prices.columns[counter])
+        plt.plot(mvo_weights_plot_df[i], label=prices.columns[counter])
         counter = counter + 1
 
-    plt.xlabel("Days")
-    plt.ylabel("Portfolio Weight mvo")
+    plt.xlabel(f"Days from {original_start}")
+    plt.ylabel("MVO Portfolio Weight")
+    plt.title("MVO Portfolio Weight Over Time")
     plt.grid()
     plt.legend()
 
@@ -240,24 +305,28 @@ def backtest(tickers, startDate, epochs, window=365):
 if __name__ == "__main__":
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
     startDate = datetime.datetime(2010, 1, 1)
-    port_returns, port_weights = backtest(tickers1, startDate, epochs=100)
+    # port_returns, port_weights = backtest(
+    #     tickers1, startDate, window=365, epochs=100)
 
     # sugar, corn future, soybean future, wheat
     tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
     startDate = datetime.datetime(2013, 1, 1)
     # port_returns, port_weights = backtest(tickers2, startDate, epochs=1000)
 
+    # BROAD COMMODITIES (nothing specific)
     tickers3 = ["USCI", "^BCOM", "GCC", "FAAR"]
     startDate = datetime.datetime(2017, 1, 1)
     # port_returns, port_weights = backtest(tickers3, startDate, epochs=500)
 
+    # PRECIOUS METALS AND OIL
     tickers4 = ['GLTR', 'BNO', 'PHYS', 'PSLV']
     startDate = datetime.datetime(2017, 1, 1)
-    # port_returns, port_weights = backtest(tickers4, startDate, epochs=500)
+    port_returns, port_weights = backtest(tickers4, startDate, epochs=500)
 
+    # STRATEGIC MINERALS AND RESOURCES
     tickers5 = ['COPX', 'URA', 'LIT', 'REMX']
     # port_returns, port_weights = backtest(tickers5, startDate, epochs=500)
 
+    # HALF METALS HALF OILS OF TOP PERFORMERS
     tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
-    #port_returns, port_weights = backtest(
-    #    tickers6, startDate, epochs=500, window=365)
+    #  tickers6, startDate, epochs=500, window=365)
