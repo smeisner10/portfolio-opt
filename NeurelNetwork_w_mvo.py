@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from cvxopt import matrix, solvers
+import csv
 
 
 seed = 1234
@@ -130,6 +131,19 @@ def mean_variance_optimization(returns_df):
 
     weights = np.array(solution['x']).flatten()
     return weights
+
+
+def get_sharpe(prices):
+    """
+    Returns Sharpe Ratio of prices, a list of sequential stock prices
+    or sizes of portfolio.
+    """
+    returns = np.diff(prices) / prices[:-1]
+
+    mn = np.mean(returns)
+    std = np.std(returns)
+
+    return mn / std
 
 
 def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
@@ -299,34 +313,49 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
     plt.legend()
 
     plt.show()
-    return money, port_weights_time
+
+    sharpe_dict = {}
+    sharpe_dict['LSTM'] = get_sharpe(moneys)
+    sharpe_dict['MVO'] = get_sharpe(money_arr[window:])
+
+    for i, t in enumerate(tickers):
+        closes = full_data.iloc[window:, i]
+        sharpe_dict[t] = get_sharpe(closes)
+
+    with open('dict.csv', 'w') as csv_file:
+        writer = csv.writer(csv_file)
+        for key, value in sharpe_dict.items():
+            writer.writerow([key, value])
+
+    return money, port_weights_time, sharpe_dict
 
 
 if __name__ == "__main__":
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
     startDate = datetime.datetime(2010, 1, 1)
-    # port_returns, port_weights = backtest(
-    #     tickers1, startDate, window=365, epochs=100)
+    port_returns, port_weights, _ = backtest(
+        tickers1, startDate, window=365, epochs=100, retrain_every=0)
 
     # sugar, corn future, soybean future, wheat
     tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
     startDate = datetime.datetime(2013, 1, 1)
-    # port_returns, port_weights = backtest(tickers2, startDate, epochs=1000)
+    # port_returns, port_weights, _ = backtest(tickers2, startDate, epochs=1000)
 
     # BROAD COMMODITIES (nothing specific)
     tickers3 = ["USCI", "^BCOM", "GCC", "FAAR"]
     startDate = datetime.datetime(2017, 1, 1)
-    # port_returns, port_weights = backtest(tickers3, startDate, epochs=500)
+    # port_returns, port_weights, _ = backtest(tickers3, startDate, epochs=500)
 
     # PRECIOUS METALS AND OIL
     tickers4 = ['GLTR', 'BNO', 'PHYS', 'PSLV']
     startDate = datetime.datetime(2017, 1, 1)
-    port_returns, port_weights = backtest(tickers4, startDate, epochs=500)
+    # port_returns, port_weights, _ = backtest(tickers4, startDate, epochs=500)
 
     # STRATEGIC MINERALS AND RESOURCES
     tickers5 = ['COPX', 'URA', 'LIT', 'REMX']
-    # port_returns, port_weights = backtest(tickers5, startDate, epochs=500)
+    # port_returns, port_weights, _ = backtest(tickers5, startDate, epochs=500)
 
     # HALF METALS HALF OILS OF TOP PERFORMERS
     tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
+    # port_returns, port_weights, _ = backtest(
     #  tickers6, startDate, epochs=500, window=365)
