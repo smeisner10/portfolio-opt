@@ -165,7 +165,12 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
 
     model = Model()
     window = data.shape[0] - 1  # TRUE WINDOW AFTER GETTING JUST TRADING DAYS
-    weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
+    go = True
+    while go:
+        model = Model()
+        weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
+        if model.losses[-1] < -.07:
+            go = False
     history = model.losses
     # how long we backtest for
     full_data = get_data(startDate, datetime.datetime(2021, 1, 1), tickers)
@@ -176,10 +181,14 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
         sub_data = full_data.iloc[i:i+window - 1]
         weights = None
         if retrain_every > 0 and (i + 1) % retrain_every == 0:
-            print('retrain')
-            model = Model()
-            weights = model.get_allocations(sub_data, epochs=epochs)
-            sub_data = prep_data_for_pred(sub_data)
+            go = True
+            while go:
+                print('retrain')
+                model = Model()
+                weights = model.get_allocations(sub_data, epochs=epochs)
+                if model.losses[-1] < -.07:
+                    go = False
+                    sub_data = prep_data_for_pred(sub_data)
 
         else:
             sub_data = prep_data_for_pred(sub_data)
@@ -345,10 +354,10 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
 
 if __name__ == "__main__":
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
-    set_seed(1234)
+    set_seed(12345678)  # 1234
     startDate = datetime.datetime(2010, 1, 1)
     port_returns, port_weights, _ = backtest(
-        tickers1, startDate, window=365, epochs=100, retrain_every=0)
+        tickers1, startDate, window=365, epochs=100, retrain_every=730)
 
     # sugar, corn future, soybean future, wheat
     tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
