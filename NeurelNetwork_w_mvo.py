@@ -1,6 +1,6 @@
 import tensorflow.keras.backend as K
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Flatten, Dense
+from tensorflow.keras.layers import LSTM, Flatten, Dense, Lambda
 import tensorflow as tf
 import datetime
 import yfinance as yahooFinance
@@ -11,17 +11,18 @@ from cvxopt import matrix, solvers
 import csv
 
 
-seed = 1234
-np.random.seed(seed)
+def set_seed(seed):
+    np.random.seed(seed)
 
-tf.random.set_seed(seed)
-tf.keras.utils.set_random_seed(seed)  # change this
+    tf.random.set_seed(seed)
+    tf.keras.utils.set_random_seed(seed)  # change this
 
 
 class Model:
     def __init__(self):
         self.data = None
         self.model = None
+        self.losses = None
 
     def __build_model(self, input_shape, outputs):
         '''
@@ -77,8 +78,9 @@ class Model:
                 data_w_ret.shape, len(data.columns))
 
         fit_predict_data = data_w_ret[np.newaxis, :]
-        self.model.fit(fit_predict_data, np.zeros(
+        history = self.model.fit(fit_predict_data, np.zeros(
             (1, len(data.columns))), epochs=epochs, shuffle=False, verbose=True)
+        self.losses = history.history['loss']
         return self.model.predict(fit_predict_data)[0]
 
 
@@ -164,7 +166,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
     model = Model()
     window = data.shape[0] - 1  # TRUE WINDOW AFTER GETTING JUST TRADING DAYS
     weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
-
+    history = model.losses
     # how long we backtest for
     full_data = get_data(startDate, datetime.datetime(2021, 1, 1), tickers)
 
@@ -220,7 +222,18 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
         money = money + money * i
         money_arr.append(money)
 
+    ### PLOT 0 ###
+    plt.plot(range(epochs), history, label="Train loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title("Loss (-Sharpe) Convergence over Epochs")
+    plt.legend()
+    plt.grid()
+    plt.savefig("loss.png")
+    plt.show()
+
     ### PLOT 1 ###
+    plt.figure()
     colors = ['lightblue', 'blue', 'navy', 'purple']
     for i, t in enumerate(tickers):
         init_val = full_data[t.lower()].iloc[window]
@@ -332,6 +345,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
 
 if __name__ == "__main__":
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
+    set_seed(1234)
     startDate = datetime.datetime(2010, 1, 1)
     port_returns, port_weights, _ = backtest(
         tickers1, startDate, window=365, epochs=100, retrain_every=0)
@@ -359,3 +373,9 @@ if __name__ == "__main__":
     tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
     # port_returns, port_weights, _ = backtest(
     #  tickers6, startDate, epochs=500, window=365)
+
+    tickers7 = ['GE', 'MSFT', 'TSLA', 'NVDA']
+    startDate = datetime.datetime(2015, 1, 1)
+    set_seed(12)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers7, startDate, window=365, epochs=100, retrain_every=0)
