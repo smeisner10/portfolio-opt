@@ -12,17 +12,17 @@ import csv
 
 
 def set_seed(seed):
+    # for replicability
     np.random.seed(seed)
-
     tf.random.set_seed(seed)
     tf.keras.utils.set_random_seed(seed)  # change this
 
 
 class Model:
     def __init__(self):
-        self.data = None
-        self.model = None
-        self.losses = None
+        self.data = None  # store price data
+        self.model = None  # store model weights
+        self.losses = None  # store history of losses
 
     def __build_model(self, input_shape, outputs):
         '''
@@ -148,7 +148,7 @@ def get_sharpe(prices):
     return mn / std
 
 
-def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
+def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_acceptable_loss=-0.07):
     """
     Get data and backtest.
     tickers: list of stock tickers from yahoo (str)
@@ -169,7 +169,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
     while go:
         model = Model()
         weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
-        if model.losses[-1] < -.07:
+        if model.losses[-1] < min_acceptable_loss:
             go = False
     history = model.losses
     # how long we backtest for
@@ -186,7 +186,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0):
                 print('retrain')
                 model = Model()
                 weights = model.get_allocations(sub_data, epochs=epochs)
-                if model.losses[-1] < -.07:
+                if model.losses[-1] < min_acceptable_loss:
                     go = False
                     sub_data = prep_data_for_pred(sub_data)
 
@@ -356,8 +356,8 @@ if __name__ == "__main__":
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
     set_seed(12345678)  # 1234
     startDate = datetime.datetime(2010, 1, 1)
-    port_returns, port_weights, _ = backtest(
-        tickers1, startDate, window=365, epochs=100, retrain_every=730)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers1, startDate, window=365, epochs=300, retrain_every=0)
 
     # sugar, corn future, soybean future, wheat
     tickers2 = ["SB=F", "KC=F", "SOYB", "WEAT"]
@@ -367,16 +367,20 @@ if __name__ == "__main__":
     # BROAD COMMODITIES (nothing specific)
     tickers3 = ["USCI", "^BCOM", "GCC", "FAAR"]
     startDate = datetime.datetime(2017, 1, 1)
-    # port_returns, port_weights, _ = backtest(tickers3, startDate, epochs=500)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers3, startDate, window=365, epochs=200, retrain_every=730, min_acceptable_loss=-.02)
 
     # PRECIOUS METALS AND OIL
     tickers4 = ['GLTR', 'BNO', 'PHYS', 'PSLV']
     startDate = datetime.datetime(2017, 1, 1)
-    # port_returns, port_weights, _ = backtest(tickers4, startDate, epochs=500)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers4, startDate, epochs=200, retrain_every=730, min_acceptable_loss=-.07)
 
     # STRATEGIC MINERALS AND RESOURCES
     tickers5 = ['COPX', 'URA', 'LIT', 'REMX']
-    # port_returns, port_weights, _ = backtest(tickers5, startDate, epochs=500)
+    startDate = datetime.datetime(2017, 1, 1)
+    port_returns, port_weights, _ = backtest(
+        tickers5, startDate, epochs=200, window=365, retrain_every=730, min_acceptable_loss=0)
 
     # HALF METALS HALF OILS OF TOP PERFORMERS
     tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
