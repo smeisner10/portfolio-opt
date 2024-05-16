@@ -148,7 +148,7 @@ def get_sharpe(prices):
     return mn / std
 
 
-def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_acceptable_loss=-0.07):
+def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_acceptable_loss=-0.07, backtestingEnd=datetime.datetime(2021, 1, 1)):
     """
     Get data and backtest.
     tickers: list of stock tickers from yahoo (str)
@@ -173,7 +173,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
             go = False
     history = model.losses
     # how long we backtest for
-    full_data = get_data(startDate, datetime.datetime(2021, 1, 1), tickers)
+    full_data = get_data(startDate, backtestingEnd, tickers)
 
     moneys = [money]
     port_weights_time = []
@@ -185,6 +185,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
             while go:
                 print('retrain')
                 model = Model()
+                tf.keras.utils.set_random_seed(np.random.randint(1, 1000))
                 weights = model.get_allocations(sub_data, epochs=epochs)
                 if model.losses[-1] < min_acceptable_loss:
                     go = False
@@ -379,8 +380,8 @@ if __name__ == "__main__":
     # STRATEGIC MINERALS AND RESOURCES
     tickers5 = ['COPX', 'URA', 'LIT', 'REMX']
     startDate = datetime.datetime(2017, 1, 1)
-    port_returns, port_weights, _ = backtest(
-        tickers5, startDate, epochs=200, window=365, retrain_every=730, min_acceptable_loss=0)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers5, startDate, epochs=200, window=365, retrain_every=730, min_acceptable_loss=0)
 
     # HALF METALS HALF OILS OF TOP PERFORMERS
     tickers6 = ['BNO', 'PHYS', 'LIT', 'REMX']
@@ -392,3 +393,25 @@ if __name__ == "__main__":
     set_seed(12)
     # port_returns, port_weights, _ = backtest(
     #     tickers7, startDate, window=365, epochs=100, retrain_every=0)
+
+    tickers8 = ['PLTM', 'BNO', 'DBA', 'GLD']
+    startDate = datetime.datetime(2018, 2, 9)  # 2019 1 1
+    set_seed(1234)
+    # port_returns, port_weights, _ = backtest(
+    #     tickers8, startDate, window=50, epochs=500, retrain_every=1, min_acceptable_loss=1, backtestingEnd=datetime.datetime(2020, 6, 1))
+
+    # backtest(tickers8, startDate, window=50, epochs=500,
+    #          retrain_every=200, min_acceptable_loss=0, backtestingEnd=datetime.datetime(2023, 1, 1))
+
+    # tickers9 = ['GLD', 'USO', 'DBA', 'DBB']
+    # set_seed(123456)
+    # # port_returns, port_weights, _ = backtest(
+    # #     tickers8, startDate, window=365, epochs=500, retrain_every=730, min_acceptable_loss=0, backtestingEnd=datetime.datetime(2023, 1, 1))
+    # startDate = datetime.datetime(2018, 1, 1)  # 2019 1 1
+    # backtest(tickers9, startDate, window=50, epochs=500,
+    #          retrain_every=270, min_acceptable_loss=1, backtestingEnd=datetime.datetime(2023, 1, 1))
+
+    tickers4 = ["USCI", "^BCOM", "GCC", "FAAR"]
+    startDate = datetime.datetime(2017, 1, 1)
+    port_returns, port_weights, _ = backtest(
+        tickers4, startDate, epochs=200, window=50, retrain_every=1, min_acceptable_loss=1, backtestingEnd=datetime.datetime(2018, 1, 1))
