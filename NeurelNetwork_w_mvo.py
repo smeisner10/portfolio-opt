@@ -15,7 +15,7 @@ def set_seed(seed):
     # for replicability
     np.random.seed(seed)
     tf.random.set_seed(seed)
-    tf.keras.utils.set_random_seed(seed)  # change this
+    tf.keras.utils.set_random_seed(seed)
 
 
 class Model:
@@ -33,25 +33,29 @@ class Model:
         returns: a Deep Neural Network model
         '''
         model = Sequential([
-            LSTM(64, input_shape=input_shape),
-            Flatten(),
+            LSTM(64, input_shape=input_shape),  # LSTM layer
+            Flatten(),  # matrix -> vec
+            # dense layer with softmax activation
             Dense(outputs, activation='softmax')
         ])
 
-        def sharpe_loss(_, y_pred):
-            # make all time-series start at 1
+        def sharpe_loss(_, y_pred):  # _ is bc no need for y_true.
+            # y_pred = weights
+
+            # make time-series start at 1
             data = tf.divide(self.data, self.data[0])
 
-            # value of the portfolio after allocations applied
+            # portfolio = data * weights
             portfolio_values = tf.reduce_sum(tf.multiply(data, y_pred), axis=1)
 
+            # sequential returns = divide by previous row
             portfolio_returns = (
                 portfolio_values[1:] - portfolio_values[:-1]) / portfolio_values[:-1]  # % change formula
 
+            # compute Sharpe
             sharpe = K.mean(portfolio_returns) / K.std(portfolio_returns)
 
-            # since we want to maximize Sharpe, while gradient descent minimizes the loss,
-            #   we can negate Sharpe (the min of a negated function is its max)
+            # we will minimize -Sharpe
             return -sharpe
 
         model.compile(loss=sharpe_loss, optimizer='adam')
@@ -59,14 +63,14 @@ class Model:
 
     def get_allocations(self, data, epochs):
         '''
-        Computes and returns the allocation ratios that optimize the Sharpe over the given data
+        Sets up data and trains model, returns output for predicted weights.
 
         input: data - DataFrame of historical closing prices of various assets
 
         return: the allocations ratios for each of the given assets
         '''
 
-        # data with returns
+        # data <- returns data and price data
         data_w_ret = np.concatenate(
             [data.values[1:], data.pct_change().values[1:]], axis=1)
 
@@ -77,20 +81,25 @@ class Model:
             self.model = self.__build_model(
                 data_w_ret.shape, len(data.columns))
 
+        # training happens here
         fit_predict_data = data_w_ret[np.newaxis, :]
         history = self.model.fit(fit_predict_data, np.zeros(
             (1, len(data.columns))), epochs=epochs, shuffle=False, verbose=True)
-        self.losses = history.history['loss']
+        self.losses = history.history['loss']  # store losses over time
+        # return next prediction
         return self.model.predict(fit_predict_data)[0]
 
 
 # can change this, but must ALSO change get_data function
-# labels = ["vti", "agg", "dbc", "vix"]
 N_ASSETS = 4  # len(labels)
 
 
 def get_data(startDate, endDate, tickers):
-    s1 = yahooFinance.Ticker(tickers[0]).history(
+    """
+    Get yahoo finance data from startDate to endDate for tickers in list tickers.
+    Return the df.
+    """
+    s1 = yahooFinance.Ticker(tickers[0]).history(  # fetch each asset sequentially
         start=startDate, end=endDate).reset_index()
     s2 = yahooFinance.Ticker(tickers[1]).history(
         start=startDate, end=endDate).reset_index()
@@ -101,34 +110,42 @@ def get_data(startDate, endDate, tickers):
     data = pd.DataFrame()
     all_assets = [s1, s2, s3, s4]
 
-    for i, asset in enumerate(all_assets):
+    for i, asset in enumerate(all_assets):  # conver to df w tickers as titles
         asset = asset.reset_index()
         lb = tickers[i].lower()
         data[lb] = asset['Close']
     return data
 
 
-def prep_data_for_pred(data):
+def prep_data_for_pred(data):  # data cleaning stuff
     data_w_ret = np.concatenate(
-        [data.values[1:], data.pct_change().values[1:]], axis=1)
+        [data.values[1:], data.pct_change().values[1:]], axis=1)  # add returns to price data
     fit_predict_data = data_w_ret[np.newaxis, :]
     return fit_predict_data
 
 
 def mean_variance_optimization(returns_df):
-
+    '''
+    Mean variance approach - dont set any target thresholds, 
+    instead try to arrive at the portfolio tangent to the mean-variance frontier
+    that minimizes covariance given mean returns from the previous period. 
+    Requires 4d input.
+    Returns MVO weights.
+    '''
     returns = returns_df.mean()
     covariance = returns_df.cov()
 
-    P = matrix(covariance.values)
-    q = matrix(-returns)
-    # Negative identity matrix for inequality constraints
-    G = matrix(-np.identity(4))
+    P = matrix(covariance.values)  # covariance matrix
+    q = matrix(-returns)  # Negative identity matrix for inequality constraints
+    G = matrix(-np.identity(4))  # identity
     h = matrix(np.zeros(4))  # Constraint: weights must be non-negative
-    A = matrix(1.0, (1, 4))  # Constraint: sum of weights must equal 1
+    # Constraint: sum of weights must equal 1, also initializes 4 outputs
+    A = matrix(1.0, (1, 4))
     b = matrix(1.0)
 
     solvers.options['show_progress'] = False
+
+    # convex optimization solver. Minimize both covariance and negative expected returns.
     solution = solvers.qp(P, q, G, h, A, b)
 
     weights = np.array(solution['x']).flatten()
@@ -156,58 +173,63 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     epochs: epochs to train for
     window: train and predict window size
     retrain_every: number of days before retrain. set to 0 for no retrain.
+    min_acceptable_loss: if (re)training did not achieve this loss, try again (set to 1 to ignore)
+    backtestingEnd: last day to stop backtesting
     """
     original_start = startDate
-    money = 1
+    money = 1  # keep track of portfolio size over time
 
     endDate = startDate + datetime.timedelta(days=window)
-    data = get_data(startDate, endDate, tickers)
+    data = get_data(startDate, endDate, tickers)  # just training data here
 
     model = Model()
     window = data.shape[0] - 1  # TRUE WINDOW AFTER GETTING JUST TRADING DAYS
-    go = True
+    go = True  # control var
     while go:
         model = Model()
         weights = model.get_allocations(data.iloc[:-1], epochs=epochs)
-        if model.losses[-1] < min_acceptable_loss:
+        if model.losses[-1] < min_acceptable_loss:  # retrain until here
             go = False
-    history = model.losses
-    # how long we backtest for
+    history = model.losses  # for plotting loss convergence
+
+    # backtesting data
     full_data = get_data(startDate, backtestingEnd, tickers)
 
-    moneys = [money]
-    port_weights_time = []
-    for i in range(len(full_data) - window):
-        sub_data = full_data.iloc[i:i+window - 1]
+    moneys = [money]  # money history
+    port_weights_time = []  # weights over time
+
+    for i in range(len(full_data) - window):  # loop through backtest
+        sub_data = full_data.iloc[i:i+window - 1]  # sliding window
         weights = None
-        if retrain_every > 0 and (i + 1) % retrain_every == 0:
+        if retrain_every > 0 and (i + 1) % retrain_every == 0:  # if time to retrain
             go = True
             while go:
                 print('retrain')
                 model = Model()
                 tf.keras.utils.set_random_seed(np.random.randint(1, 1000))
-                weights = model.get_allocations(sub_data, epochs=epochs)
+                weights = model.get_allocations(
+                    sub_data, epochs=epochs)  # train and get weights
                 if model.losses[-1] < min_acceptable_loss:
                     go = False
                     sub_data = prep_data_for_pred(sub_data)
 
         else:
             sub_data = prep_data_for_pred(sub_data)
-            weights = model.model.predict(sub_data)[0]
+            weights = model.model.predict(sub_data)[0]  # get predictions
 
-        returns = sub_data[0][-1] / sub_data[0][-2]
+        returns = sub_data[0][-1] / sub_data[0][-2]  # get asset returns
         returns = returns[:N_ASSETS]
         print(weights)
-        port_returns = weights@returns
+        port_returns = weights@returns  # get portfolio returns
         if port_returns == port_returns:
             money *= port_returns
-        startDate += datetime.timedelta(days=1)
+        startDate += datetime.timedelta(days=1)  # increment window
         endDate += datetime.timedelta(days=1)
         print(i, money)
         moneys.append(money)
         port_weights_time.append(weights)
 
-    # mvo from here
+    # mvo code from here
     prices = full_data
     windows = prices.rolling(50)
     weights_df = pd.DataFrame()
@@ -232,7 +254,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
         money = money + money * i
         money_arr.append(money)
 
-    ### PLOT 0 ###
+    ### PLOT 0: Loss convergence ###
     plt.plot(range(epochs), history, label="Train loss")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
@@ -242,7 +264,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     plt.savefig("loss.png")
     plt.show()
 
-    ### PLOT 1 ###
+    ### PLOT 1: Asset Performance ###
     plt.figure()
     colors = ['lightblue', 'blue', 'navy', 'purple']
     for i, t in enumerate(tickers):
@@ -262,10 +284,9 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
-    ### PLOT 2 ####
+    ### PLOT 2: LSTM vs Assets####
     plt.figure()
 
-    # mvo
     # plt.plot(range(len(prices[2:])-window),
     # money_arr[0:(len(money_arr) - window)], label="MVO portfolio")
     for i, t in enumerate(tickers):
@@ -286,7 +307,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
-    ### PLOT 3###
+    ### PLOT 3: LSTM v MVO###
     plt.figure()
     plt.plot(range(len(full_data) - window + 1),
              moneys, label="LSTM Portfolio", color='blue')
@@ -303,7 +324,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
-    ### PLOT 3 ###
+    ### PLOT 4: LSTM weights over time ###
     plt.figure()
     # plot weights over time
     port_weights_time = np.array(port_weights_time)
@@ -319,7 +340,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
     # plt.savefig('INSERT_FIG_NAME.png')
     plt.show()
 
-    ### PLOT 4 ###
+    ### PLOT 5: MVO weights ###
     # mvo weights plots:
     plt.figure()
     mvo_weights_plot_df = weights_df[0:(len(money_arr) - window)]
@@ -337,6 +358,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
 
     plt.show()
 
+    # create and save dict of final sharpe ratios
     sharpe_dict = {}
     sharpe_dict['LSTM'] = get_sharpe(moneys)
     sharpe_dict['MVO'] = get_sharpe(money_arr[window:])
@@ -345,7 +367,7 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
         closes = full_data.iloc[window:, i]
         sharpe_dict[t] = get_sharpe(closes)
 
-    with open('dict.csv', 'w') as csv_file:
+    with open('dict.csv', 'w') as csv_file:  # save dict
         writer = csv.writer(csv_file)
         for key, value in sharpe_dict.items():
             writer.writerow([key, value])
@@ -354,6 +376,10 @@ def backtest(tickers, startDate, epochs, window=365, retrain_every=0, min_accept
 
 
 if __name__ == "__main__":
+    # Define set of tickers, random seed if desired, strat and end date, and
+    # hyperparameters to create an experiment.
+
+    # original test
     tickers1 = ["VTI", "AGG", "DBC", "^VIX"]
     set_seed(12345678)  # 1234
     startDate = datetime.datetime(2010, 1, 1)
@@ -415,3 +441,6 @@ if __name__ == "__main__":
     startDate = datetime.datetime(2017, 1, 1)
     port_returns, port_weights, _ = backtest(
         tickers4, startDate, epochs=200, window=50, retrain_every=1, min_acceptable_loss=1, backtestingEnd=datetime.datetime(2018, 1, 1))
+
+
+# credit to https://github.com/shilewenuw for starter code
